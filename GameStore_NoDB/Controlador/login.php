@@ -12,10 +12,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['nombre'] = $usuario['nombre'];
             $_SESSION['rol'] = $usuario['rol'];
 
-            if ($usuario['rol'] === 'admin' || $usuario['rol'] === 'vendedor') {
-                header("Location: ../Vista/panel.php");
+            if ($usuario['rol'] === 'admin') {
+                header("Location: ../Vista/admin_dashboard.php");
             } else {
-                header("Location: ../Vista/catalogo.php");
+                header("Location: ../Vista/index.php");
             }
             exit();
         }

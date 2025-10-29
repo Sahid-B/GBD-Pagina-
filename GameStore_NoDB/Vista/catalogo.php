@@ -1,88 +1,125 @@
 <?php
-include 'header.php';
+// GameStore_NoDB/Vista/catalogo.php
 require_once '../Modelo/memoria.php';
+session_start();
+include 'header.php';
 
-// Search and filter logic
-$busqueda = isset($_GET['busqueda']) ? strtolower($_GET['busqueda']) : '';
-$juegos_disponibles = [];
-foreach ($_SESSION['db']['juegos'] as $juego) {
-    if ($juego['stock'] > 0) {
-        if (empty($busqueda) || strpos(strtolower($juego['titulo']), $busqueda) !== false || strpos(strtolower($juego['genero']), $busqueda) !== false) {
-            $juegos_disponibles[] = $juego;
-        }
-    }
+// --- Filtering and Sorting Logic ---
+$juegos = $_SESSION['db']['juegos'];
+
+// Get unique genres for the filter dropdown
+$generos = array_unique(array_column($juegos, 'genero'));
+
+// Filter by search term
+$busqueda = isset($_GET['busqueda']) ? strtolower(trim($_GET['busqueda'])) : '';
+if ($busqueda) {
+    $juegos = array_filter($juegos, function($juego) use ($busqueda) {
+        return strpos(strtolower($juego['titulo']), $busqueda) !== false;
+    });
 }
 
-function render_stars($rating) {
-    $html = '<div class="star-rating">';
-    for ($i = 1; $i <= 5; $i++) {
-        $html .= $i <= $rating ? '★' : '☆';
-    }
-    $html .= '</div>';
-    return $html;
+// Filter by genre
+$genero_filtro = isset($_GET['genero']) ? $_GET['genero'] : '';
+if ($genero_filtro) {
+    $juegos = array_filter($juegos, function($juego) use ($genero_filtro) {
+        return $juego['genero'] === $genero_filtro;
+    });
 }
+
+// Sort results
+$orden = isset($_GET['orden']) ? $_GET['orden'] : 'nombre_asc';
+usort($juegos, function($a, $b) use ($orden) {
+    switch ($orden) {
+        case 'precio_asc':
+            return $a['precio'] <=> $b['precio'];
+        case 'precio_desc':
+            return $b['precio'] <=> $a['precio'];
+        case 'nombre_desc':
+            return strcasecmp($b['titulo'], $a['titulo']);
+        case 'nombre_asc':
+        default:
+            return strcasecmp($a['titulo'], $b['titulo']);
+    }
+});
+
+// --- Pagination Logic ---
+$juegos_por_pagina = 12;
+$total_juegos = count($juegos);
+$total_paginas = ceil($total_juegos / $juegos_por_pagina);
+$pagina_actual = isset($_GET['pagina']) ? (int)$_GET['pagina'] : 1;
+$pagina_actual = max(1, min($pagina_actual, $total_paginas));
+$offset = ($pagina_actual - 1) * $juegos_por_pagina;
+$juegos_en_pagina = array_slice($juegos, $offset, $juegos_por_pagina);
 ?>
 
-<style>
-.game-card {
-    position: relative;
-    border-radius: 10px;
-    overflow: hidden;
-    transition: transform 0.3s ease, box-shadow 0.4s ease;
-    border: 1px solid transparent;
-}
-.game-card:hover {
-    transform: scale(1.05);
-    box-shadow: 0 0 25px var(--card-border);
-    border-color: var(--neon-accent);
-}
-.game-card-img-overlay {
-    position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: linear-gradient(to top, rgba(15, 36, 60, 0.9) 20%, transparent 60%);
-    opacity: 0;
-    transition: opacity 0.3s ease;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-end;
-    padding: 1rem;
-}
-.game-card:hover .game-card-img-overlay { opacity: 1; }
-.game-card-title { font-weight: 700; }
-.game-card-price { color: var(--neon-accent); font-weight: 700; font-size: 1.2rem; }
-.star-rating { color: #ffc107; }
-.btn-add-cart { width: 100%; }
-</style>
-
 <div class="container mt-5">
-    <h1 class="mb-4">Catálogo de Juegos</h1>
+    <h2>Catálogo de Juegos</h2>
+    <p class="text-muted">Se encontraron <?php echo $total_juegos; ?> juegos.</p>
 
-    <!-- Search Form -->
-    <form method="GET" action="catalogo.php" class="mb-5">
-        <div class="input-group">
-            <input type="text" name="busqueda" class="form-control form-control-lg" placeholder="Buscar por título o género..." value="<?php echo htmlspecialchars($busqueda); ?>">
-            <button class="btn btn-primary" type="submit">Buscar</button>
+    <!-- Filter and Sort Form -->
+    <form action="catalogo.php" method="GET" class="mb-4 p-3 bg-light border rounded">
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label for="busqueda" class="form-label">Buscar por nombre</label>
+                <input type="text" class="form-control" id="busqueda" name="busqueda" placeholder="E.g., Cyberpunk" value="<?php echo htmlspecialchars($busqueda); ?>">
+            </div>
+            <div class="col-md-3">
+                <label for="genero" class="form-label">Género</label>
+                <select class="form-select" id="genero" name="genero">
+                    <option value="">Todos</option>
+                    <?php foreach ($generos as $g): ?>
+                        <option value="<?php echo htmlspecialchars($g); ?>" <?php if ($g === $genero_filtro) echo 'selected'; ?>>
+                            <?php echo htmlspecialchars($g); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Ordenar por</label>
+                <select class="form-select" name="orden">
+                    <option value="nombre_asc" <?php if ($orden === 'nombre_asc') echo 'selected'; ?>>Nombre (A-Z)</option>
+                    <option value="nombre_desc" <?php if ($orden === 'nombre_desc') echo 'selected'; ?>>Nombre (Z-A)</option>
+                    <option value="precio_asc" <?php if ($orden === 'precio_asc') echo 'selected'; ?>>Precio (Bajo a Alto)</option>
+                    <option value="precio_desc" <?php if ($orden === 'precio_desc') echo 'selected'; ?>>Precio (Alto a Bajo)</option>
+                </select>
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+                <button type="submit" class="btn btn-primary w-100">Filtrar</button>
+            </div>
         </div>
     </form>
 
     <!-- Games Grid -->
-    <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 row-cols-xl-4 g-4">
-        <?php foreach ($juegos_disponibles as $juego): ?>
+    <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-4">
+        <?php foreach ($juegos_en_pagina as $juego): ?>
             <div class="col">
-                <div class="card game-card h-100">
-                    <img src="<?php echo $juego['image']; ?>" class="card-img" alt="<?php echo htmlspecialchars($juego['titulo']); ?>">
-                    <div class="game-card-img-overlay">
-                        <h5 class="card-title text-white game-card-title"><?php echo htmlspecialchars($juego['titulo']); ?></h5>
-                        <?php echo render_stars($juego['rating']); ?>
-                        <div class="d-flex justify-content-between align-items-center mt-3">
-                            <span class="game-card-price">$<?php echo htmlspecialchars($juego['precio']); ?></span>
-                            <a href="../Controlador/carrito_acciones.php?accion=agregar&id=<?php echo $juego['id_juego']; ?>" class="btn btn-primary btn-sm">Añadir</a>
-                        </div>
+                <div class="card h-100">
+                    <img src="<?php echo htmlspecialchars($juego['image']); ?>" class="card-img-top" alt="<?php echo htmlspecialchars($juego['titulo']); ?>">
+                    <div class="card-body">
+                        <h5 class="card-title"><?php echo htmlspecialchars($juego['titulo']); ?></h5>
+                        <p class="card-text text-muted"><?php echo htmlspecialchars($juego['genero']); ?></p>
+                        <p class="card-text h4">$<?php echo number_format($juego['precio'], 2); ?></p>
+                    </div>
+                    <div class="card-footer">
+                        <a href="detalle_juego.php?id=<?php echo $juego['id_juego']; ?>" class="btn btn-secondary w-100">Ver Detalles</a>
                     </div>
                 </div>
             </div>
         <?php endforeach; ?>
     </div>
+
+    <!-- Pagination -->
+    <nav aria-label="Page navigation" class="mt-5">
+        <ul class="pagination justify-content-center">
+            <?php for ($i = 1; $i <= $total_paginas; $i++): ?>
+                <li class="page-item <?php if ($i === $pagina_actual) echo 'active'; ?>">
+                    <a class="page-link" href="?pagina=<?php echo $i; ?>&busqueda=<?php echo urlencode($busqueda); ?>&genero=<?php echo urlencode($genero_filtro); ?>&orden=<?php echo urlencode($orden); ?>">
+                        <?php echo $i; ?>
+                    </a>
+                </li>
+            <?php endfor; ?>
+        </ul>
+    </nav>
 </div>
 
 <?php include 'footer.php'; ?>
